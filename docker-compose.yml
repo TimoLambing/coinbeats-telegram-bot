@@ -1,0 +1,38 @@
+# docker-compose.yml
+
+services:
+  telegram-bot-1:
+    build: .
+    container_name: coinbeats-telegram-bot-1
+    environment:
+      BOT_TOKEN: ${BOT_TOKEN}
+      MEDIA_PATH: ${MEDIA_PATH}
+      ADMIN_USERS: ${ADMIN_USERS}
+      DATABASE_URL: ${DATABASE_URL}
+    expose:
+      - "8443"
+    restart: always
+
+  telegram-bot-2:
+    build: .
+    container_name: coinbeats-telegram-bot-2
+    environment:
+      BOT_TOKEN: ${BOT_TOKEN}
+      MEDIA_PATH: ${MEDIA_PATH}
+      ADMIN_USERS: ${ADMIN_USERS}
+      DATABASE_URL: ${DATABASE_URL}
+    expose:
+      - "8444"
+    restart: always
+
+  telegram-bot-3:
+    build: .
+    container_name: coinbeats-telegram-bot-3
+    environment:
+      BOT_TOKEN: ${BOT_TOKEN}
+      MEDIA_PATH: ${MEDIA_PATH}
+      ADMIN_USERS: ${ADMIN_USERS}
+      DATABASE_URL: ${DATABASE_URL}
+    expose:
+      - "8445"
+    restart: always

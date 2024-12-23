@@ -1,0 +1,5 @@
+python-telegram-bot==20.3
+python-dotenv==0.21.1
+SQLAlchemy==2.0.10
+psycopg2==2.9.6
+alembic==1.11.1
