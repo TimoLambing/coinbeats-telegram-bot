@@ -257,7 +257,7 @@ def main() -> None:
     # Example path: '/bot'
     # Example listening on 0.0.0.0:8443 inside container. 
     # Then Nginx on the host routes https://bot.coinbeats.xyz/bot → container:8443/bot
-    PORT = 8445  # or 8444 / 8445 in each container
+    PORT = 8443  # or 8444 / 8445 in each container
     WEBHOOK_PATH = "/bot"
     WEBHOOK_URL = f"https://bot.coinbeats.xyz{WEBHOOK_PATH}"
 
