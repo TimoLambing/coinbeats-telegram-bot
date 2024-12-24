@@ -11,7 +11,7 @@ services:
       DATABASE_URL: ${DATABASE_URL}
     # Instead of "expose:", use "ports:" to publish 8443 on the host
     ports:
-      - "8443:8443"
+      - "${PORT}:${PORT}"
     restart: always
 
   telegram-bot-2:
@@ -23,7 +23,7 @@ services:
       ADMIN_USERS: ${ADMIN_USERS}
       DATABASE_URL: ${DATABASE_URL}
     ports:
-      - "8444:8444"
+      - "${PORT}:${PORT}"
     restart: always
 
   telegram-bot-3:
@@ -35,5 +35,5 @@ services:
       ADMIN_USERS: ${ADMIN_USERS}
       DATABASE_URL: ${DATABASE_URL}
     ports:
-      - "8445:8445"
+      - "${PORT}:${PORT}"
     restart: always
