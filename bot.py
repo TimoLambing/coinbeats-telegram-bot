@@ -91,12 +91,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
             # Send the animation with welcome text
             await context.bot.send_animation(
-                chat_id=update.effective_chat.id,
-                animation=InputFile(MEDIA_PATH),
-                caption=welcome_msg,
-                parse_mode='HTML',
-                reply_markup=reply_markup
-            )
+            chat_id=update.effective_chat.id,
+            animation=open(MEDIA_PATH, 'rb'),  # Explicitly open the file
+            caption=welcome_msg,
+            parse_mode='HTML',
+            reply_markup=reply_markup
+        )
 
         else:
             # If this is not a private chat
