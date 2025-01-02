@@ -2,6 +2,7 @@ import os
 import logging
 import sys
 import json
+import time
 from asyncio import Queue, sleep
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
@@ -62,6 +63,20 @@ def save_animation_file_id(file_id):
 # Load animation file_id on bot startup
 load_animation_file_id()
 
+def safe_db_query(query_function, retries=3, delay=5):
+    """
+    Safely execute a database query with retries for transient errors.
+    """
+    for attempt in range(retries):
+        try:
+            with SessionLocal() as db:
+                return query_function(db)
+        except Exception as e:
+            logger.error(f"Database error on attempt {attempt + 1}: {e}")
+            time.sleep(delay)
+    logger.error("All retries failed. Database query unsuccessful.")
+    return None
+
 async def message_worker(application: Application):
     """Worker that processes messages from the queue and sends them to Telegram."""
     while True:
@@ -86,8 +101,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             last_name = update.effective_user.last_name or "Unknown"
             referral_code = context.args[0] if context.args else None
 
-            # Save user data to the database
-            with SessionLocal() as db:
+            # Database operation
+            def query_function(db):
                 user = db.query(User).filter(User.telegram_user_id == user_id).first()
                 if not user:
                     user = User(
@@ -102,6 +117,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                     logger.info(f"New user registered: {user_id}, param={referral_code}")
                 else:
                     logger.info(f"Existing user accessed: {user_id}")
+                return user
+
+            safe_db_query(query_function)
 
             open_app_url = f"https://t.me/CoinbeatsMiniApp_bot/miniapp"
             if referral_code:
