@@ -111,8 +111,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 [InlineKeyboardButton("🚀 Open App", url=open_app_url)],
                 [InlineKeyboardButton("📢 Subscribe To Channel", url="https://t.me/CoinBeats")],
                 [InlineKeyboardButton("💬 Discussion Groups", url="https://t.me/CoinBeatsDiscuss")],
-                [InlineKeyboardButton("🤝 Partnerships for Protocols", url="https://t.me/mikkmm")],
-                [InlineKeyboardButton("🆘 Help & Support", url="https://t.me/mikkmm")]
+                [InlineKeyboardButton("🤝 Partnerships for Protocols", url="https://t.me/mikkkm")],
+                [InlineKeyboardButton("🆘 Help & Support", url="https://t.me/mikkkm")]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
 
