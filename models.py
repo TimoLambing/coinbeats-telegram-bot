@@ -7,4 +7,7 @@ class User(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     telegram_user_id = Column(BigInteger, unique=True, index=True)
-    first_start_param = Column(String, nullable=True)  # store any referral code or TappAds param here
+    username = Column(String, nullable=True)
+    first_name = Column(String, nullable=True)
+    last_name = Column(String, nullable=True)
+    first_start_param = Column(String, nullable=True)
