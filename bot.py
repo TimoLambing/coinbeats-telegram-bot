@@ -167,6 +167,7 @@ def main():
     application = (
         Application.builder()
         .token(BOT_TOKEN)
+        .post_init(lambda app: app.job_queue.start())  # Start the job queue
         .build()
     )
 
@@ -174,7 +175,8 @@ def main():
     application.add_handler(MessageHandler(filters.Regex("^/broadcast"), broadcast))
 
     # Start message worker for queue
-    application.job_queue.run_once(lambda _: message_worker(application), 0)
+    if application.job_queue:
+        application.job_queue.run_once(lambda _: message_worker(application), when=0)
 
     application.run_webhook(
         listen="0.0.0.0",
