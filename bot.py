@@ -69,8 +69,10 @@ def safe_db_query(query_function, retries=3, delay=5):
     """
     for attempt in range(retries):
         try:
-            with SessionLocal() as db:
-                return query_function(db)
+            db = SessionLocal()
+            result = query_function(db)
+            db.close()  # Explicitly close the session
+            return result
         except Exception as e:
             logger.error(f"Database error on attempt {attempt + 1}: {e}")
             time.sleep(delay)
