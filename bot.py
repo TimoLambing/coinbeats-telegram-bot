@@ -28,8 +28,9 @@ WEBHOOK_PATH = os.getenv('WEBHOOK_PATH')
 WEBHOOK_URL = os.getenv('WEBHOOK_URL')
 PORT = int(os.getenv('PORT', '8443'))
 
-# Message Queue for handling Telegram flood control
-message_queue = Queue()
+# Priority Queues
+user_message_queue = Queue()
+broadcast_message_queue = Queue()
 
 # Animation file_id cache
 ANIMATION_CACHE_PATH = "animation_cache.json"
@@ -71,7 +72,7 @@ def safe_db_query(query_function, retries=3, delay=5):
         try:
             db = SessionLocal()
             result = query_function(db)
-            db.close()  # Explicitly close the session
+            db.close()
             return result
         except Exception as e:
             logger.error(f"Database error on attempt {attempt + 1}: {e}")
@@ -82,14 +83,23 @@ def safe_db_query(query_function, retries=3, delay=5):
 async def message_worker(application: Application):
     """Worker that processes messages from the queue and sends them to Telegram."""
     while True:
-        task = await message_queue.get()
         try:
-            await task()
+            task = None
+            if not user_message_queue.empty():
+                task = await user_message_queue.get()
+            elif not broadcast_message_queue.empty():
+                task = await broadcast_message_queue.get()
+
+            if task:
+                await task()
         except Exception as e:
             logger.error(f"Error processing message queue task: {e}")
         finally:
-            message_queue.task_done()
-        await sleep(0.034)  # Ensure at least 30ms between messages (Telegram flood limit)
+            if task and not user_message_queue.empty():
+                user_message_queue.task_done()
+            elif task:
+                broadcast_message_queue.task_done()
+        await sleep(0.034)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handles the /start command and registers users in the database."""
@@ -123,8 +133,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                         user.username = username
                         user.first_name = first_name
                         user.last_name = last_name
-                        db.add(user)
-                db.commit()
+                        db.commit()
+                        logger.info(f"Updated user information: {user_id}")
                 return user
 
             safe_db_query(query_function)
@@ -152,14 +162,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
             # Use cached file_id if available
             if ANIMATION_FILE_ID:
-                await context.bot.send_animation(
+                await user_message_queue.put(lambda: context.bot.send_animation(
                     chat_id=update.effective_chat.id,
                     animation=ANIMATION_FILE_ID,
                     caption=welcome_message,
                     reply_markup=reply_markup
-                )
+                ))
             else:
-                # Send the file from disk and cache the file_id
                 with open(MEDIA_PATH, 'rb') as animation_file:
                     message = await context.bot.send_animation(
                         chat_id=update.effective_chat.id,
@@ -180,48 +189,43 @@ async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     message_text = update.message.text.partition(' ')[2] if update.message.text else ''
     photo = update.message.photo[-1].file_id if update.message.photo else None
 
-    if not message_text and not photo:
-        await update.message.reply_text("Please provide a message or photo to broadcast.")
+    parts = message_text.split('||') if message_text else []
+    text = parts[0].strip() if parts else ''
+    buttons = []
+
+    for part in parts[1:]:
+        if ',' in part:
+            btn_text, btn_url = part.strip().split(',', 1)
+            buttons.append([InlineKeyboardButton(btn_text.strip(), url=btn_url.strip())])
+
+    default_button = [InlineKeyboardButton("🚀 Open App", url="https://t.me/CoinbeatsMiniApp_bot/miniapp")]
+    buttons.append(default_button)
+    reply_markup = InlineKeyboardMarkup(buttons) if buttons else None
+
+    users = safe_db_query(lambda db: [user.telegram_user_id for user in db.query(User).all()])
+
+    if not users:
+        await update.message.reply_text("No users found to broadcast the message.")
         return
 
-    try:
-        parts = message_text.split('||') if message_text else []
-        text = parts[0].strip() if parts else ''
-        buttons = []
-
-        # Parse custom buttons from the message
-        for part in parts[1:]:
-            if ',' in part:
-                btn_text, btn_url = part.strip().split(',', 1)
-                buttons.append([InlineKeyboardButton(btn_text.strip(), url=btn_url.strip())])
-
-        # Add the default "Open App" button to every broadcast
-        default_button = [InlineKeyboardButton("🚀 Open App", url="https://t.me/CoinbeatsMiniApp_bot/miniapp")]
-        buttons.append(default_button)
-
-        reply_markup = InlineKeyboardMarkup(buttons) if buttons else None
-
-        # Send broadcast
+    for user_id in users:
         if photo:
-            await context.bot.send_photo(
-                chat_id=update.effective_chat.id,
+            await broadcast_message_queue.put(lambda: context.bot.send_photo(
+                chat_id=user_id,
                 photo=photo,
                 caption=text,
                 reply_markup=reply_markup,
                 parse_mode='HTML'
-            )
+            ))
         else:
-            await context.bot.send_message(
-                chat_id=update.effective_chat.id,
+            await broadcast_message_queue.put(lambda: context.bot.send_message(
+                chat_id=user_id,
                 text=text,
                 reply_markup=reply_markup,
                 parse_mode='HTML'
-            )
+            ))
 
-        await update.message.reply_text("Broadcast sent successfully.")
-    except Exception as e:
-        logger.error(f"Error in broadcast: {e}")
-
+    await update.message.reply_text("Broadcast has been queued for all users.")
 
 def main():
     """Set up webhook and start the bot."""
