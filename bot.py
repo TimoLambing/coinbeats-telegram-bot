@@ -101,7 +101,7 @@ async def message_worker():
         finally:
             if task and not user_message_queue.empty():
                 user_message_queue.task_done()
-            elif task and not broadcast_message_queue.empty():
+            elif task:
                 broadcast_message_queue.task_done()
 
         # Add a log to see which tasks were completed
