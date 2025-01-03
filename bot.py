@@ -3,7 +3,7 @@ import logging
 import sys
 import json
 import time
-from asyncio import Queue, sleep
+from asyncio import Queue, sleep, create_task, Task
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 from sqlalchemy.orm import Session
@@ -31,6 +31,7 @@ PORT = int(os.getenv('PORT', '8443'))
 # Priority Queues
 user_message_queue = Queue()
 broadcast_message_queue = Queue()
+message_worker_task: Task | None = None
 
 # Animation file_id cache
 ANIMATION_CACHE_PATH = "animation_cache.json"
@@ -65,9 +66,7 @@ def save_animation_file_id(file_id):
 load_animation_file_id()
 
 def safe_db_query(query_function, retries=3, delay=5):
-    """
-    Safely execute a database query with retries for transient errors.
-    """
+    """Safely execute a database query with retries for transient errors."""
     for attempt in range(retries):
         try:
             db = SessionLocal()
@@ -80,26 +79,42 @@ def safe_db_query(query_function, retries=3, delay=5):
     logger.error("All retries failed. Database query unsuccessful.")
     return None
 
-async def message_worker(application: Application):
-    """Worker that processes messages from the queue and sends them to Telegram."""
-    while True:
+async def message_worker():
+    global message_worker_task
+    logger.info("Message worker started.")
+    while not user_message_queue.empty() or not broadcast_message_queue.empty():
         try:
             task = None
             if not user_message_queue.empty():
                 task = await user_message_queue.get()
+                logger.info("Processing user message task.")
             elif not broadcast_message_queue.empty():
                 task = await broadcast_message_queue.get()
+                logger.info("Processing broadcast message task.")
 
             if task:
+                logger.info("Executing task...")
                 await task()
+                logger.info("Task executed successfully.")
         except Exception as e:
-            logger.error(f"Error processing message queue task: {e}")
+            logger.error(f"Error processing task: {e}")
         finally:
             if task and not user_message_queue.empty():
                 user_message_queue.task_done()
             elif task:
                 broadcast_message_queue.task_done()
+
+        # Add a log to see which tasks were completed
+        logger.info(f"Remaining tasks in queue: {broadcast_message_queue.qsize()} (broadcast), {user_message_queue.qsize()} (user)")
         await sleep(0.034)
+
+    logger.info("Message worker finished.")
+    message_worker_task = None
+
+async def ensure_message_worker():
+    global message_worker_task
+    if message_worker_task is None or message_worker_task.done():
+        message_worker_task = create_task(message_worker())
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handles the /start command and registers users in the database."""
@@ -177,8 +192,18 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                         reply_markup=reply_markup
                     )
                     save_animation_file_id(message.animation.file_id)
+
+            await ensure_message_worker()
     except Exception as e:
         logger.error(f"Error in /start: {e}")
+
+        # Define a custom filter for the broadcast command
+class BroadcastFilter(filters.MessageFilter):
+    def filter(self, message):
+        return ((message.text and message.text.startswith('/broadcast')) or
+                (message.caption and message.caption.startswith('/broadcast')))
+
+broadcast_filter = BroadcastFilter()
 
 async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handles /broadcast to send a message or photo to all users."""
@@ -187,12 +212,27 @@ async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     logger.info("Starting broadcast function...")
-    message_text = update.message.text.partition(' ')[2] if update.message.text else ''
+
+    # Extract text and photo from the message
+    message_text = None
+    if update.message.text and update.message.text.startswith('/broadcast'):
+        message_text = update.message.text.partition(' ')[2]
+    elif update.message.caption and update.message.caption.startswith('/broadcast'):
+        message_text = update.message.caption.partition(' ')[2]
+
     photo = update.message.photo[-1].file_id if update.message.photo else None
 
-    logger.info(f"Message Text: {message_text}")
-    logger.info(f"Photo File ID: {photo}")
+    logger.info(f"Broadcast text: {message_text}")
+    if photo:
+        logger.info(f"Broadcast photo detected with File ID: {photo}")
+    else:
+        logger.info("No photo detected in the broadcast message.")
 
+    if not message_text and not photo:
+        await update.message.reply_text("Please provide a message or image to broadcast.")
+        return
+
+    # Parse text and buttons
     parts = message_text.split('||') if message_text else []
     text = parts[0].strip() if parts else ''
     buttons = []
@@ -214,20 +254,23 @@ async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     logger.info(f"Loaded {len(users)} users from the database.")
-    logger.info(f"Users: {users}")
+    logger.info(f"User IDs: {users}")
 
+    # Queue messages for broadcasting
     for user_id in users:
         logger.info(f"Queuing message for user_id: {user_id}")
         if photo:
-            await broadcast_message_queue.put(lambda: context.bot.send_photo(
+            logger.info(f"Queuing photo message for user_id: {user_id} with caption: {text}")
+            await broadcast_message_queue.put(lambda user_id=user_id: context.bot.send_photo(
                 chat_id=user_id,
                 photo=photo,
-                caption=text,
+                caption=text if text else None,
                 reply_markup=reply_markup,
                 parse_mode='HTML'
             ))
         else:
-            await broadcast_message_queue.put(lambda: context.bot.send_message(
+            logger.info(f"Queuing text message for user_id: {user_id}")
+            await broadcast_message_queue.put(lambda user_id=user_id: context.bot.send_message(
                 chat_id=user_id,
                 text=text,
                 reply_markup=reply_markup,
@@ -237,30 +280,42 @@ async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text("Broadcast has been queued for all users.")
     logger.info("Broadcast has been queued for all users.")
 
+    # Start the message worker to process the queue
+    await ensure_message_worker()
 
 def main():
-    """Set up webhook and start the bot."""
-    logger.info("Starting the bot in webhook mode...")
+    logger.info("Starting the bot in polling mode...")
 
     application = (
         Application.builder()
         .token(BOT_TOKEN)
-        .post_init(lambda app: app.job_queue.start())
         .build()
     )
 
     application.add_handler(CommandHandler("start", start))
-    application.add_handler(MessageHandler(filters.Regex("^/broadcast"), broadcast))
+    application.add_handler(MessageHandler(broadcast_filter, broadcast))
 
-    if application.job_queue:
-        application.job_queue.run_once(lambda _: message_worker(application), when=0)
+    application.run_polling()
 
-    application.run_webhook(
-        listen="0.0.0.0",
-        port=PORT,
-        url_path=WEBHOOK_PATH,
-        webhook_url=f"{WEBHOOK_URL}/{WEBHOOK_PATH}"
-    )
+# Uncomment this section for webhook mode
+# def main():
+#     logger.info("Starting the bot in webhook mode...")
+#
+#     application = (
+#         Application.builder()
+#         .token(BOT_TOKEN)
+#         .build()
+#     )
+#
+#     application.add_handler(CommandHandler("start", start))
+#     application.add_handler(MessageHandler(filters.Regex("^/broadcast"), broadcast))
+#
+#     application.run_webhook(
+#         listen="0.0.0.0",
+#         port=PORT,
+#         url_path=WEBHOOK_PATH,
+#         webhook_url=f"{WEBHOOK_URL}/{WEBHOOK_PATH}"
+#     )
 
 if __name__ == '__main__':
     main()
