@@ -101,7 +101,7 @@ async def message_worker():
         finally:
             if task and not user_message_queue.empty():
                 user_message_queue.task_done()
-            elif task:
+            elif task and not broadcast_message_queue.empty():
                 broadcast_message_queue.task_done()
 
         # Add a log to see which tasks were completed
@@ -177,12 +177,23 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
             # Use cached file_id if available
             if ANIMATION_FILE_ID:
-                await user_message_queue.put(lambda: context.bot.send_animation(
-                    chat_id=update.effective_chat.id,
-                    animation=ANIMATION_FILE_ID,
-                    caption=welcome_message,
-                    reply_markup=reply_markup
-                ))
+                try:
+                    await user_message_queue.put(lambda: context.bot.send_animation(
+                        chat_id=update.effective_chat.id,
+                        animation=ANIMATION_FILE_ID,
+                        caption=welcome_message,
+                        reply_markup=reply_markup
+                    ))
+                except Exception as e:
+                    logger.warning("Cached animation file_id is invalid. Re-uploading animation.")
+                    with open(MEDIA_PATH, 'rb') as animation_file:
+                        message = await context.bot.send_animation(
+                            chat_id=update.effective_chat.id,
+                            animation=animation_file,
+                            caption=welcome_message,
+                            reply_markup=reply_markup
+                        )
+                        save_animation_file_id(message.animation.file_id)
             else:
                 with open(MEDIA_PATH, 'rb') as animation_file:
                     message = await context.bot.send_animation(
