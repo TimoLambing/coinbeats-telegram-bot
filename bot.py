@@ -284,7 +284,7 @@ async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await ensure_message_worker()
 
 def main():
-    logger.info("Starting the bot in polling mode...")
+    logger.info("Starting the bot in webhook mode...")
 
     application = (
         Application.builder()
@@ -295,27 +295,12 @@ def main():
     application.add_handler(CommandHandler("start", start))
     application.add_handler(MessageHandler(broadcast_filter, broadcast))
 
-    application.run_polling()
-
-# Uncomment this section for webhook mode
-# def main():
-#     logger.info("Starting the bot in webhook mode...")
-#
-#     application = (
-#         Application.builder()
-#         .token(BOT_TOKEN)
-#         .build()
-#     )
-#
-#     application.add_handler(CommandHandler("start", start))
-#     application.add_handler(MessageHandler(filters.Regex("^/broadcast"), broadcast))
-#
-#     application.run_webhook(
-#         listen="0.0.0.0",
-#         port=PORT,
-#         url_path=WEBHOOK_PATH,
-#         webhook_url=f"{WEBHOOK_URL}/{WEBHOOK_PATH}"
-#     )
+    application.run_webhook(
+        listen="0.0.0.0",
+        port=PORT,
+        url_path=WEBHOOK_PATH,
+        webhook_url=f"{WEBHOOK_URL}/{WEBHOOK_PATH}"
+    )
 
 if __name__ == '__main__':
     main()
