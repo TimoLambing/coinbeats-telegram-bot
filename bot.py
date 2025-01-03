@@ -181,13 +181,17 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         logger.error(f"Error in /start: {e}")
 
 async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handles /broadcast to send a message or photo to the current chat."""
+    """Handles /broadcast to send a message or photo to all users."""
     if update.effective_user.id not in ADMIN_USERS:
         await update.message.reply_text("You are not authorized to use this command.")
         return
 
+    logger.info("Starting broadcast function...")
     message_text = update.message.text.partition(' ')[2] if update.message.text else ''
     photo = update.message.photo[-1].file_id if update.message.photo else None
+
+    logger.info(f"Message Text: {message_text}")
+    logger.info(f"Photo File ID: {photo}")
 
     parts = message_text.split('||') if message_text else []
     text = parts[0].strip() if parts else ''
@@ -202,13 +206,18 @@ async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     buttons.append(default_button)
     reply_markup = InlineKeyboardMarkup(buttons) if buttons else None
 
+    logger.info("Loading users from the database...")
     users = safe_db_query(lambda db: [user.telegram_user_id for user in db.query(User).all()])
-
     if not users:
+        logger.warning("No users found in the database for broadcasting.")
         await update.message.reply_text("No users found to broadcast the message.")
         return
 
+    logger.info(f"Loaded {len(users)} users from the database.")
+    logger.info(f"Users: {users}")
+
     for user_id in users:
+        logger.info(f"Queuing message for user_id: {user_id}")
         if photo:
             await broadcast_message_queue.put(lambda: context.bot.send_photo(
                 chat_id=user_id,
@@ -226,6 +235,8 @@ async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             ))
 
     await update.message.reply_text("Broadcast has been queued for all users.")
+    logger.info("Broadcast has been queued for all users.")
+
 
 def main():
     """Set up webhook and start the bot."""
