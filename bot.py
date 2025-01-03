@@ -119,6 +119,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                     logger.info(f"New user registered: {user_id}, param={referral_code}")
                 else:
                     logger.info(f"Existing user accessed: {user_id}")
+                    if user.username != username or user.first_name != first_name or user.last_name != last_name:
+                        user.username = username
+                        user.first_name = first_name
+                        user.last_name = last_name
+                        db.add(user)
+                db.commit()
                 return user
 
             safe_db_query(query_function)
@@ -166,7 +172,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         logger.error(f"Error in /start: {e}")
 
 async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handles /broadcast to send a message or photo to the bot's chat."""
+    """Handles /broadcast to send a message or photo to the current chat."""
     if update.effective_user.id not in ADMIN_USERS:
         await update.message.reply_text("You are not authorized to use this command.")
         return
@@ -197,24 +203,25 @@ async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
         # Send broadcast
         if photo:
-            await message_queue.put(lambda: context.bot.send_photo(
+            await context.bot.send_photo(
                 chat_id=update.effective_chat.id,
                 photo=photo,
                 caption=text,
                 reply_markup=reply_markup,
                 parse_mode='HTML'
-            ))
+            )
         else:
-            await message_queue.put(lambda: context.bot.send_message(
+            await context.bot.send_message(
                 chat_id=update.effective_chat.id,
                 text=text,
                 reply_markup=reply_markup,
                 parse_mode='HTML'
-            ))
+            )
 
         await update.message.reply_text("Broadcast sent successfully.")
     except Exception as e:
         logger.error(f"Error in broadcast: {e}")
+
 
 def main():
     """Set up webhook and start the bot."""
@@ -223,14 +230,13 @@ def main():
     application = (
         Application.builder()
         .token(BOT_TOKEN)
-        .post_init(lambda app: app.job_queue.start())  # Start the job queue
+        .post_init(lambda app: app.job_queue.start())
         .build()
     )
 
     application.add_handler(CommandHandler("start", start))
     application.add_handler(MessageHandler(filters.Regex("^/broadcast"), broadcast))
 
-    # Start message worker for queue
     if application.job_queue:
         application.job_queue.run_once(lambda _: message_worker(application), when=0)
 
